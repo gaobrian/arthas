@@ -134,7 +134,7 @@
             <dependency>
                 <groupId>ognl</groupId>
                 <artifactId>ognl</artifactId>
-                <version>3.1.19</version>
+                <version>3.2.15</version>
             </dependency>
             <dependency>
                 <groupId>junit</groupId>
@@ -240,7 +240,7 @@
                         <format>html</format>
                         <format>xml</format>
                     </formats>
-                    <check />
+                    <check/>
                 </configuration>
             </plugin>
         </plugins>
