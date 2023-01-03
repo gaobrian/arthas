@@ -33,15 +33,16 @@ public class DynamicCompilerException extends RuntimeException {
         this.diagnostics = diagnostics;
     }
 
-    public DynamicCompilerException(Throwable cause) {
+    public DynamicCompilerException(Throwable cause, List<Diagnostic<? extends JavaFileObject>> diagnostics) {
         super(cause);
+        this.diagnostics = diagnostics;
     }
 
     private List<Map<String, Object>> getErrorList() {
         List<Map<String, Object>> messages = new ArrayList<Map<String, Object>>();
         if (diagnostics != null) {
             for (Diagnostic<? extends JavaFileObject> diagnostic : diagnostics) {
-                Map<String, Object> message = new HashMap<String, Object>();
+                Map<String, Object> message = new HashMap<String, Object>(2);
                 message.put("line", diagnostic.getLineNumber());
                 message.put("message", diagnostic.getMessage(Locale.US));
                 messages.add(message);
@@ -54,13 +55,11 @@ public class DynamicCompilerException extends RuntimeException {
     private String getErrors() {
         StringBuilder errors = new StringBuilder();
 
-        for (Map<String, Object> entry : getErrorList()) {
-
-            for (String key : entry.keySet()) {
-
-                Object value = entry.get(key);
+        for (Map<String, Object> message : getErrorList()) {
+            for (Map.Entry<String, Object> entry : message.entrySet()) {
+                Object value = entry.getValue();
                 if (value != null && !value.toString().isEmpty()) {
-                    errors.append(key);
+                    errors.append(entry.getKey());
                     errors.append(": ");
                     errors.append(value);
                 }

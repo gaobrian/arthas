@@ -1,13 +1,14 @@
 package com.taobao.arthas.core.util;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
+import java.io.IOException;
+import java.io.InputStream;
 import java.net.URL;
 import java.net.URLConnection;
 import java.net.URLEncoder;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
 
 /**
  * Arthas 使用情况统计
@@ -15,48 +16,68 @@ import java.util.concurrent.Executors;
  * Created by zhuyong on 15/11/12.
  */
 public class UserStatUtil {
-    private static final ExecutorService executorService = Executors.newSingleThreadExecutor();
+
+    private static final int DEFAULT_BUFFER_SIZE = 8192;
+
+    private static final byte[] SKIP_BYTE_BUFFER = new byte[DEFAULT_BUFFER_SIZE];
+
+    private static final ExecutorService executorService = Executors.newSingleThreadExecutor(new ThreadFactory() {
+        @Override
+        public Thread newThread(Runnable r) {
+            final Thread t = new Thread(r, "arthas-UserStat");
+            t.setDaemon(true);
+            return t;
+        }
+    });
     private static final String ip = IPUtils.getLocalIP();
 
     private static final String version = URLEncoder.encode(ArthasBanner.version().replace("\n", ""));
 
+    private static volatile String statUrl = null;
+
+    public static String getStatUrl() {
+        return statUrl;
+    }
+
+    public static void setStatUrl(String url) {
+        statUrl = url;
+    }
+
     public static void arthasStart() {
         RemoteJob job = new RemoteJob();
-        job.setResource("anonymousStatStart.do");
-        job.appendQueryData("productName", "Arthas");
-        job.appendQueryData("productVersion", URLEncoder.encode(ArthasBanner.version()));
+        job.appendQueryData("ip", ip);
+        job.appendQueryData("version", version);
+        job.appendQueryData("command", "start");
 
         try {
             executorService.execute(job);
-        } catch(Throwable t) {
+        } catch (Throwable t) {
             //
         }
     }
 
     public static void arthasUsage(String cmd, String detail) {
         RemoteJob job = new RemoteJob();
-        job.setResource("nonAnonymousStat.do");
         job.appendQueryData("ip", ip);
-        job.appendQueryData("productName", "Arthas");
-        job.appendQueryData("productVersion", version);
-        job.appendQueryData("opName", URLEncoder.encode(cmd));
+        job.appendQueryData("version", version);
+        job.appendQueryData("command", URLEncoder.encode(cmd));
         if (detail != null) {
-            job.appendQueryData("opDetail", URLEncoder.encode(detail));
+            job.appendQueryData("arguments", URLEncoder.encode(detail));
         }
 
         try {
             executorService.execute(job);
-        } catch(Throwable t) {
+        } catch (Throwable t) {
             //
         }
     }
 
     public static void arthasUsageSuccess(String cmd, List<String> args) {
         StringBuilder commandString = new StringBuilder(cmd);
-        for (String arg: args) {
+        for (String arg : args) {
             commandString.append(" ").append(arg);
         }
-        UserStatUtil.arthasUsage(cmd, commandString.toString() + " --> success");
+        UserStatUtil.arthasUsage(cmd, commandString.toString());
     }
 
     public static void destroy() {
@@ -65,51 +86,49 @@ public class UserStatUtil {
     }
 
     static class RemoteJob implements Runnable {
-
-//        private StringBuilder link = new StringBuilder("http://arthas.io/api/");
-        // disable stat
-        private StringBuilder link = null;
-
-        private String resource;
-
         private StringBuilder queryData = new StringBuilder();
-
-        public void setResource(String resource) {
-            this.resource = resource;
-        }
 
         public void appendQueryData(String key, String value) {
             if (key != null && value != null) {
                 if (queryData.length() == 0) {
-                    queryData.append(key + "=" + value);
+                    queryData.append(key).append("=").append(value);
                 } else {
-                    queryData.append("&" + key + "=" + value);
+                    queryData.append("&").append(key).append("=").append(value);
                 }
             }
         }
 
         @Override
         public void run() {
+            String link = statUrl;
             if (link == null) {
                 return;
             }
+            InputStream inputStream = null;
             try {
-                link.append(resource);
                 if (queryData.length() != 0) {
-                    link.append("?").append(queryData);
+                    link = link + "?" + queryData;
                 }
-                URL url = new URL(link.toString());
+                URL url = new URL(link);
                 URLConnection connection = url.openConnection();
                 connection.setConnectTimeout(1000);
                 connection.setReadTimeout(1000);
                 connection.connect();
-                BufferedReader br = new BufferedReader(new InputStreamReader(connection.getInputStream()));
-                String line = null;
-                StringBuilder result = new StringBuilder();
-                while ((line = br.readLine()) != null) {
-                    result.append(line);
+                inputStream = connection.getInputStream();
+                //noinspection StatementWithEmptyBody
+                while (inputStream.read(SKIP_BYTE_BUFFER) != -1) {
+                    // do nothing
                 }
-            } catch (Exception ex) {
+            } catch (Throwable t) {
+                // ignore
+            } finally {
+                if (inputStream != null) {
+                    try {
+                        inputStream.close();
+                    } catch (IOException e) {
+                        // ignore
+                    }
+                }
             }
         }
     }

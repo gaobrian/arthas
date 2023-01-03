@@ -1,9 +1,9 @@
 package com.taobao.arthas.core.shell.term.impl;
 
+import com.alibaba.arthas.deps.org.slf4j.Logger;
+import com.alibaba.arthas.deps.org.slf4j.LoggerFactory;
 import com.taobao.arthas.core.shell.ShellServerOptions;
 import com.taobao.arthas.core.shell.term.TermServer;
-import com.taobao.arthas.core.util.LogUtil;
-import com.taobao.middleware.logger.Logger;
 import io.termd.core.readline.Keymap;
 
 import java.io.FileInputStream;
@@ -14,7 +14,7 @@ import java.io.InputStream;
  */
 public class Helper {
 
-    private static Logger logger = LogUtil.getArthasLogger();
+    private static final Logger logger = LoggerFactory.getLogger(Helper.class);
 
     public static Keymap loadKeymap() {
         return new Keymap(loadInputRcFile());

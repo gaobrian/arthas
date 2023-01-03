@@ -1,28 +1,42 @@
-//
-// Source code recreated from a .class file by IntelliJ IDEA
-// (powered by Fernflower decompiler)
-//
-
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package com.taobao.arthas.core.util;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.StringReader;
 import java.lang.reflect.Modifier;
+import java.net.URL;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
 import java.util.Properties;
 import java.util.Set;
 import java.util.StringTokenizer;
 import java.util.TreeSet;
 
+import com.alibaba.arthas.deps.org.slf4j.Logger;
+import com.alibaba.arthas.deps.org.slf4j.LoggerFactory;
+
 public abstract class StringUtils {
-
-    private static final String FOLDER_SEPARATOR = "/";
-    private static final String WINDOWS_FOLDER_SEPARATOR = "\\";
-    private static final String TOP_PATH = "..";
-    private static final String CURRENT_PATH = ".";
-    private static final char EXTENSION_SEPARATOR = '.';
-    public static final int UNIT = 1024;
-    public static final String STRING_UNITS = "KMGTPE";
-
+    private static final Logger logger = LoggerFactory.getLogger(StringUtils.class);
+    private static final String AB = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
     /**
      * 获取异常的原因描述
@@ -50,7 +64,10 @@ public abstract class StringUtils {
         try {
             return obj.toString();
         } catch (Throwable t) {
-            return "ERROR DATA!!!";
+            logger.error("objectToString error, obj class: {}", obj.getClass(), t);
+            return "ERROR DATA!!! Method toString() throw exception. obj class: " + obj.getClass()
+                    + ", exception class: " + t.getClass()
+                    + ", exception message: " + t.getMessage();
         }
     }
 
@@ -85,7 +102,7 @@ public abstract class StringUtils {
         return StringUtils.replace(className, "/", ".");
     }
 
-    public static String concat(String seperator, Class<?>... types) {
+    public static String concat(String separator, Class<?>... types) {
         if (types == null || types.length == 0) {
             return Constants.EMPTY_STRING;
         }
@@ -94,7 +111,23 @@ public abstract class StringUtils {
         for (int i = 0; i < types.length; i++) {
             builder.append(classname(types[i]));
             if (i < types.length - 1) {
-                builder.append(seperator);
+                builder.append(separator);
+            }
+        }
+
+        return builder.toString();
+    }
+
+    public static String concat(String separator, String... strs) {
+        if (strs == null || strs.length == 0) {
+            return Constants.EMPTY_STRING;
+        }
+
+        StringBuilder builder = new StringBuilder();
+        for (int i = 0; i < strs.length; i++) {
+            builder.append(strs[i]);
+            if (i < strs.length - 1) {
+                builder.append(separator);
             }
         }
 
@@ -447,12 +480,16 @@ public abstract class StringUtils {
 
     public static String replace(String inString, String oldPattern, String newPattern) {
         if(hasLength(inString) && hasLength(oldPattern) && newPattern != null) {
-            StringBuilder sb = new StringBuilder();
             int pos = 0;
             int index = inString.indexOf(oldPattern);
+            if (index < 0) {
+                //no need to replace
+                return inString;
+            }
 
+            StringBuilder sb = new StringBuilder();
             for(int patLen = oldPattern.length(); index >= 0; index = inString.indexOf(oldPattern, pos)) {
-                sb.append(inString.substring(pos, index));
+                sb.append(inString, pos, index);
                 sb.append(newPattern);
                 pos = index + patLen;
             }
@@ -525,18 +562,6 @@ public abstract class StringUtils {
         }
     }
 
-
-    private static void validateLocalePart(String localePart) {
-        for(int i = 0; i < localePart.length(); ++i) {
-            char ch = localePart.charAt(i);
-            if(ch != 95 && ch != 32 && !Character.isLetterOrDigit(ch)) {
-                throw new IllegalArgumentException("Locale part \"" + localePart + "\" contains invalid characters");
-            }
-        }
-
-    }
-
-
     public static String[] toStringArray(Collection<String> collection) {
         return collection == null?null:(String[])collection.toArray(new String[0]);
     }
@@ -593,13 +618,13 @@ public abstract class StringUtils {
             return null;
         } else {
             StringTokenizer st = new StringTokenizer(str, delimiters);
-            ArrayList tokens = new ArrayList();
+            ArrayList<String> tokens = new ArrayList<String>();
 
             while(true) {
                 String token;
                 do {
                     if(!st.hasMoreTokens()) {
-                        return toStringArray((Collection)tokens);
+                        return toStringArray(tokens);
                     }
 
                     token = st.nextToken();
@@ -623,7 +648,7 @@ public abstract class StringUtils {
         } else if(delimiter == null) {
             return new String[]{str};
         } else {
-            ArrayList result = new ArrayList();
+            ArrayList<String> result = new ArrayList<String>();
             int pos;
             if("".equals(delimiter)) {
                 for(pos = 0; pos < str.length(); ++pos) {
@@ -640,7 +665,7 @@ public abstract class StringUtils {
                 }
             }
 
-            return toStringArray((Collection)result);
+            return toStringArray(result);
         }
     }
 
@@ -649,17 +674,8 @@ public abstract class StringUtils {
     }
 
     public static Set<String> commaDelimitedListToSet(String str) {
-        TreeSet set = new TreeSet();
         String[] tokens = commaDelimitedListToStringArray(str);
-        String[] var3 = tokens;
-        int var4 = tokens.length;
-
-        for(int var5 = 0; var5 < var4; ++var5) {
-            String token = var3[var5];
-            set.add(token);
-        }
-
-        return set;
+        return new TreeSet<String>(Arrays.asList(tokens));
     }
 
     /**
@@ -683,7 +699,7 @@ public abstract class StringUtils {
         }
         int arraySize = array.length;
         int bufSize = (arraySize == 0 ? 0 : (array[0].toString().length() + separator.length()) * arraySize);
-        StringBuffer buf = new StringBuffer(bufSize);
+        StringBuilder buf = new StringBuilder(bufSize);
 
         for (int i = 0; i < arraySize; i++) {
             if (i > 0) {
@@ -716,7 +732,7 @@ public abstract class StringUtils {
             return true;
         }
         for (int i = 0; i < strLen; i++) {
-            if (Character.isWhitespace(cs.charAt(i)) == false) {
+            if (!Character.isWhitespace(cs.charAt(i))) {
                 return false;
             }
         }
@@ -878,16 +894,104 @@ public abstract class StringUtils {
     }
 
     /**
-     * format byte size to human readable format
+     * format byte size to human readable format. https://stackoverflow.com/a/3758880
      * @param bytes byets
      * @return  human readable format
      */
     public static String humanReadableByteCount(long bytes) {
-        if (bytes < UNIT) {
-            return bytes + " B";
+        return bytes < 1024L ? bytes + " B"
+                : bytes < 0xfffccccccccccccL >> 40 ? String.format("%.1f KiB", bytes / 0x1p10)
+                : bytes < 0xfffccccccccccccL >> 30 ? String.format("%.1f MiB", bytes / 0x1p20)
+                : bytes < 0xfffccccccccccccL >> 20 ? String.format("%.1f GiB", bytes / 0x1p30)
+                : bytes < 0xfffccccccccccccL >> 10 ? String.format("%.1f TiB", bytes / 0x1p40)
+                : bytes < 0xfffccccccccccccL ? String.format("%.1f PiB", (bytes >> 10) / 0x1p40)
+                : String.format("%.1f EiB", (bytes >> 20) / 0x1p40);
+    }
+
+    public static List<String> toLines(String text) {
+        List<String> result = new ArrayList<String>();
+        BufferedReader reader = new BufferedReader(new StringReader(text));
+        try {
+            String line = reader.readLine();
+            while (line != null) {
+                result.add(line);
+                line = reader.readLine();
+            }
+        } catch (IOException exc) {
+            // quit
+        } finally {
+            try {
+                reader.close();
+            } catch (IOException e) {
+                // ignore
+            }
         }
-        int exp = (int) (Math.log(bytes) / Math.log(UNIT));
-        String pre =  STRING_UNITS.charAt(exp-1) +  "i";
-        return String.format("%.2f %sB", bytes / Math.pow(UNIT, exp), pre);
+        return result;
+    }
+
+    public static String randomString(int length) {
+        StringBuilder sb = new StringBuilder(length);
+        for (int i = 0; i < length; i++)
+            sb.append(AB.charAt(ThreadLocalRandom.current().nextInt(AB.length())));
+        return sb.toString();
+    }
+
+    /**
+     * Returns the string before the given token
+     *
+     * @param text   the text
+     * @param before the token
+     * @return the text before the token, or <tt>null</tt> if text does not contain
+     *         the token
+     */
+    public static String before(String text, String before) {
+        int pos = text.indexOf(before);
+        return pos == -1 ? null : text.substring(0, pos);
+    }
+
+    /**
+     * Returns the string after the given token
+     *
+     * @param text  the text
+     * @param after the token
+     * @return the text after the token, or <tt>null</tt> if text does not contain
+     *         the token
+     */
+    public static String after(String text, String after) {
+        int pos = text.indexOf(after);
+        if (pos == -1) {
+            return null;
+        }
+        return text.substring(pos + after.length());
+    }
+
+    // print|(ILjava/util/List;)V
+    public static String[] splitMethodInfo(String methodInfo) {
+        int index = methodInfo.indexOf('|');
+        return new String[] { methodInfo.substring(0, index), methodInfo.substring(index + 1) };
+    }
+
+    // demo/MathGame|primeFactors|(I)Ljava/util/List;|24
+    public static String[] splitInvokeInfo(String invokeInfo) {
+        int index1 = invokeInfo.indexOf('|');
+        int index2 = invokeInfo.indexOf('|', index1 + 1);
+        int index3 = invokeInfo.indexOf('|', index2 + 1);
+        return new String[] { invokeInfo.substring(0, index1), invokeInfo.substring(index1 + 1, index2),
+                invokeInfo.substring(index2 + 1, index3), invokeInfo.substring(index3 + 1) };
+    }
+
+    public static String beautifyName(String name) {
+        return name.replace(' ', '_').toLowerCase();
+    }
+
+    public static List<String> toStringList(URL[] urls) {
+        if (urls != null) {
+            List<String> result = new ArrayList<String>(urls.length);
+            for (URL url : urls) {
+                result.add(url.toString());
+            }
+            return result;
+        }
+        return Collections.emptyList();
     }
 }

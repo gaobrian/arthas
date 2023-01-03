@@ -22,6 +22,9 @@ import java.util.zip.ZipFile;
  */
 public class IOUtils {
 
+    private IOUtils() {
+    }
+
     public static String toString(InputStream inputStream) throws IOException {
         ByteArrayOutputStream result = new ByteArrayOutputStream();
         byte[] buffer = new byte[1024];
@@ -38,6 +41,18 @@ public class IOUtils {
         while ((len = in.read(buffer)) != -1) {
             out.write(buffer, 0, len);
         }
+    }
+
+    /**
+     * @return a byte[] containing the information contained in the specified
+     *         InputStream.
+     * @throws java.io.IOException
+     */
+    public static byte[] getBytes(InputStream input) throws IOException {
+        ByteArrayOutputStream result = new ByteArrayOutputStream();
+        copy(input, result);
+        result.close();
+        return result.toByteArray();
     }
 
     public static IOException close(InputStream input) {
@@ -79,6 +94,14 @@ public class IOUtils {
         return null;
     }
 
+    public static boolean isSubFile(File parent, File child) throws IOException {
+        return child.getCanonicalPath().startsWith(parent.getCanonicalPath() + File.separator);
+    }
+ 
+    public static boolean isSubFile(String parent, String child) throws IOException {
+        return isSubFile(new File(parent), new File(child));
+    }
+
     public static void unzip(String zipFile, String extractFolder) throws IOException {
         File file = new File(zipFile);
         ZipFile zip = null;
@@ -86,9 +109,9 @@ public class IOUtils {
             int BUFFER = 1024 * 8;
 
             zip = new ZipFile(file);
-            String newPath = extractFolder;
+            File newPath = new File(extractFolder);
+            newPath.mkdirs();
 
-            new File(newPath).mkdir();
             Enumeration<? extends ZipEntry> zipFileEntries = zip.entries();
 
             // Process each entry
@@ -98,6 +121,10 @@ public class IOUtils {
                 String currentEntry = entry.getName();
 
                 File destFile = new File(newPath, currentEntry);
+                if (!isSubFile(newPath, destFile)) {
+                    throw new IOException("Bad zip entry: " + currentEntry);
+                }
+
                 // destFile = new File(newPath, destFile.getName());
                 File destinationParent = destFile.getParentFile();
 

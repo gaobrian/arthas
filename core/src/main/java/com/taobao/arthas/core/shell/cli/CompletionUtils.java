@@ -73,7 +73,7 @@ public class CompletionUtils {
             return true;
         } else {
             completion.complete(candidates);
-            return false;
+            return true;
         }
     }
 
@@ -121,12 +121,14 @@ public class CompletionUtils {
         File[] listFiles = dir.listFiles();
 
         ArrayList<String> names = new ArrayList<String>();
-        for (File child : listFiles) {
-            if (child.getName().startsWith(partName)) {
-                if (child.isDirectory()) {
-                    names.add(child.getName() + "/");
-                } else {
-                    names.add(child.getName());
+        if (listFiles != null) {
+            for (File child : listFiles) {
+                if (child.getName().startsWith(partName)) {
+                    if (child.isDirectory()) {
+                        names.add(child.getName() + "/");
+                    } else {
+                        names.add(child.getName());
+                    }
                 }
             }
         }
@@ -134,7 +136,7 @@ public class CompletionUtils {
         if (names.size() == 1 && names.get(0).endsWith("/")) {
             String name = names.get(0);
             // 这个函数补全后不会有空格，并且只能传入要补全的内容
-            completion.complete(name.substring(tokenFileName.length(), name.length()), false);
+            completion.complete(name.substring(tokenFileName.length()), false);
             return true;
         }
 
@@ -200,6 +202,10 @@ public class CompletionUtils {
         List<CliToken> tokens = completion.lineTokens();
         String lastToken = completion.lineTokens().get(tokens.size() - 1).value();
 
+        if (StringUtils.isBlank(lastToken)) {
+            lastToken = "";
+        }
+
         // retrieve the class name
         String className;
         if (StringUtils.isBlank(lastToken)) {
@@ -211,7 +217,7 @@ public class CompletionUtils {
         }
 
         Set<Class<?>> results = SearchUtils.searchClassOnly(completion.session().getInstrumentation(), className, 2);
-        if (results.isEmpty() || results.size() > 1) {
+        if (results.size() != 1) {
             // no class found or multiple class found
             completion.complete(Collections.<String>emptyList());
             return true;
@@ -308,12 +314,90 @@ public class CompletionUtils {
                 if (commonPrefix.length() == prefix.length()) {
                     completion.complete(candidates);
                 } else {
-                    completion.complete(commonPrefix.substring(prefix.length(), commonPrefix.length()), false);
+                    completion.complete(commonPrefix.substring(prefix.length()), false);
                 }
 
             } else {
                 completion.complete(candidates);
             }
         }
+    }
+
+    /**
+     * <pre>
+     * 检查是否应该补全某个 option。
+     * 比如 option是： --classPattern ， tokens可能是：
+     *  2个： '--classPattern' ' '
+     *  3个： '--classPattern' ' ' 'demo.'
+     * </pre>
+     * 
+     * @param option
+     * @return
+     */
+    public static boolean shouldCompleteOption(Completion completion, String option) {
+        List<CliToken> tokens = completion.lineTokens();
+        // 有两个 tocken, 然后 倒数第一个不是 - 开头的
+        if (tokens.size() >= 2) {
+            CliToken cliToken_1 = tokens.get(tokens.size() - 1);
+            CliToken cliToken_2 = tokens.get(tokens.size() - 2);
+            String token_2 = cliToken_2.value();
+            if (!cliToken_1.value().startsWith("-") && token_2.equals(option)) {
+                return CompletionUtils.completeClassName(completion);
+            }
+        }
+        // 有三个 token，然后 倒数第一个不是 - 开头的，倒数第2是空的，倒数第3是 --classPattern
+        if (tokens.size() >= 3) {
+            CliToken cliToken_1 = tokens.get(tokens.size() - 1);
+            CliToken cliToken_2 = tokens.get(tokens.size() - 2);
+            CliToken cliToken_3 = tokens.get(tokens.size() - 3);
+            if (!cliToken_1.value().startsWith("-") && cliToken_2.isBlank()
+                    && cliToken_3.value().equals(option)) {
+                return CompletionUtils.completeClassName(completion);
+            }
+        }
+        return false;
+    }
+
+    public static boolean completeOptions(Completion completion, List<OptionCompleteHandler> handlers) {
+        List<CliToken> tokens = completion.lineTokens();
+        /**
+         * <pre>
+         * 比如 ` --name a`，这样子的tokens
+         * </pre>
+         */
+        if (tokens.size() >= 3) {
+            CliToken cliToken_2 = tokens.get(tokens.size() - 2);
+            CliToken cliToken_3 = tokens.get(tokens.size() - 3);
+
+            if (cliToken_2.isBlank()) {
+                String token_3 = cliToken_3.value();
+
+                for (OptionCompleteHandler handler : handlers) {
+                    if (handler.matchName(token_3)) {
+                        return handler.complete(completion);
+                    }
+                }
+            }
+        }
+
+        /**
+         * <pre>
+         * 比如 ` --name `，这样子的tokens
+         * </pre>
+         */
+        if (tokens.size() >= 2) {
+            CliToken cliToken_1 = tokens.get(tokens.size() - 1);
+            CliToken cliToken_2 = tokens.get(tokens.size() - 2);
+            if (cliToken_1.isBlank()) {
+                String token_2 = cliToken_2.value();
+                for (OptionCompleteHandler handler : handlers) {
+                    if (handler.matchName(token_2)) {
+                        return handler.complete(completion);
+                    }
+                }
+            }
+        }
+
+        return false;
     }
 }

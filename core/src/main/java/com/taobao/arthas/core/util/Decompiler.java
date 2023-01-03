@@ -1,32 +1,20 @@
 package com.taobao.arthas.core.util;
 
-import java.io.IOException;
-import java.io.StringWriter;
 import java.util.ArrayList;
-import java.util.Collections;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.NavigableMap;
+import java.util.TreeMap;
 
-import org.benf.cfr.reader.bytecode.analysis.parse.utils.Pair;
-import org.benf.cfr.reader.entities.ClassFile;
-import org.benf.cfr.reader.entities.Method;
-import org.benf.cfr.reader.relationship.MemberNameResolver;
-import org.benf.cfr.reader.state.ClassFileSourceImpl;
-import org.benf.cfr.reader.state.DCCommonState;
-import org.benf.cfr.reader.state.TypeUsageCollector;
-import org.benf.cfr.reader.state.TypeUsageInformation;
-import org.benf.cfr.reader.util.AnalysisType;
-import org.benf.cfr.reader.util.CannotLoadClassException;
-import org.benf.cfr.reader.util.ConfusedCFRException;
-import org.benf.cfr.reader.util.ListFactory;
-import org.benf.cfr.reader.util.getopt.GetOptParser;
-import org.benf.cfr.reader.util.getopt.Options;
-import org.benf.cfr.reader.util.getopt.OptionsImpl;
-import org.benf.cfr.reader.util.output.Dumper;
-import org.benf.cfr.reader.util.output.DumperFactory;
-import org.benf.cfr.reader.util.output.DumperFactoryImpl;
-import org.benf.cfr.reader.util.output.IllegalIdentifierDump;
-import org.benf.cfr.reader.util.output.StreamDumper;
-import org.benf.cfr.reader.util.output.ToStringDumper;
+import org.benf.cfr.reader.api.CfrDriver;
+import org.benf.cfr.reader.api.OutputSinkFactory;
+import org.benf.cfr.reader.api.SinkReturns.LineNumberMapping;
+
+import com.taobao.arthas.common.Pair;
 
 /**
  *
@@ -35,168 +23,120 @@ import org.benf.cfr.reader.util.output.ToStringDumper;
  */
 public class Decompiler {
 
-    /**
-     * @see org.benf.cfr.reader.Main#main(String[])
-     * @param classFilePath
-     * @param methodName
-     * @return
-     */
     public static String decompile(String classFilePath, String methodName) {
-        StringBuilder result = new StringBuilder(8192);
-
-        List<String> argList = new ArrayList<String>();
-        argList.add(classFilePath);
-        if (methodName != null) {
-            argList.add("--methodname");
-            argList.add(methodName);
-        }
-        String args[] = argList.toArray(new String[0]);
-
-        GetOptParser getOptParser = new GetOptParser();
-
-        Options options = null;
-        List<String> files = null;
-        try {
-            Pair processedArgs = getOptParser.parse(args, OptionsImpl.getFactory());
-            files = (List) processedArgs.getFirst();
-            options = (Options) processedArgs.getSecond();
-        } catch (Exception e) {
-            getOptParser.showHelp(OptionsImpl.getFactory(), e);
-            System.exit(1);
-        }
-
-        if ((options.optionIsSet(OptionsImpl.HELP)) || (files.isEmpty())) {
-            getOptParser.showOptionHelp(OptionsImpl.getFactory(), options, OptionsImpl.HELP);
-            return "";
-        }
-
-        ClassFileSourceImpl classFileSource = new ClassFileSourceImpl(options);
-
-        boolean skipInnerClass = (files.size() > 1)
-                        && (((Boolean) options.getOption(OptionsImpl.SKIP_BATCH_INNER_CLASSES)).booleanValue());
-
-        Collections.sort(files);
-
-        for (String path : files) {
-            classFileSource.clearConfiguration();
-            DCCommonState dcCommonState = new DCCommonState(options, classFileSource);
-            DumperFactory dumperFactory = new DumperFactoryImpl(options);
-
-            path = classFileSource.adjustInputPath(path);
-
-            AnalysisType type = (AnalysisType) options.getOption(OptionsImpl.ANALYSE_AS);
-            if (type == null) {
-                type = dcCommonState.detectClsJar(path);
-            }
-
-            if (type == AnalysisType.JAR) {
-                // doJar(dcCommonState, path, dumperFactory);
-            }
-            if (type == AnalysisType.CLASS) {
-                result.append(doClass(dcCommonState, path, skipInnerClass, dumperFactory));
-            }
-        }
-        return result.toString();
+        return decompile(classFilePath, methodName, false);
     }
 
-    public static String doClass(DCCommonState dcCommonState, String path, boolean skipInnerClass,
-                    DumperFactory dumperFactory) {
-        StringBuilder result = new StringBuilder(8192);
-        Options options = dcCommonState.getOptions();
-        IllegalIdentifierDump illegalIdentifierDump = IllegalIdentifierDump.Factory.get(options);
-        Dumper d = new ToStringDumper();
-        try {
-            ClassFile c = dcCommonState.getClassFileMaybePath(path);
-            if ((skipInnerClass) && (c.isInnerClass())) {
-                return "";
-            }
-            dcCommonState.configureWith(c);
-            dumperFactory.getProgressDumper().analysingType(c.getClassType());
-            try {
-                c = dcCommonState.getClassFile(c.getClassType());
-            } catch (CannotLoadClassException e) {
-            }
-            if (((Boolean) options.getOption(OptionsImpl.DECOMPILE_INNER_CLASSES)).booleanValue()) {
-                c.loadInnerClasses(dcCommonState);
-            }
-            if (((Boolean) options.getOption(OptionsImpl.RENAME_DUP_MEMBERS)).booleanValue()) {
-                MemberNameResolver.resolveNames(dcCommonState,
-                                ListFactory.newList(dcCommonState.getClassCache().getLoadedTypes()));
+    public static String decompile(String classFilePath, String methodName, boolean hideUnicode) {
+        return decompile(classFilePath, methodName, hideUnicode, true);
+    }
+
+    public static Pair<String, NavigableMap<Integer, Integer>> decompileWithMappings(String classFilePath,
+            String methodName, boolean hideUnicode, boolean printLineNumber) {
+        final StringBuilder sb = new StringBuilder(8192);
+
+        final NavigableMap<Integer, Integer> lineMapping = new TreeMap<Integer, Integer>();
+
+        OutputSinkFactory mySink = new OutputSinkFactory() {
+            @Override
+            public List<SinkClass> getSupportedSinks(SinkType sinkType, Collection<SinkClass> collection) {
+                return Arrays.asList(SinkClass.STRING, SinkClass.DECOMPILED, SinkClass.DECOMPILED_MULTIVER,
+                        SinkClass.EXCEPTION_MESSAGE, SinkClass.LINE_NUMBER_MAPPING);
             }
 
-            c.analyseTop(dcCommonState);
-
-            TypeUsageCollector collectingDumper = new TypeUsageCollector(c);
-            c.collectTypeUsages(collectingDumper);
-
-            d = new StringDumper(collectingDumper.getTypeUsageInformation(), options, illegalIdentifierDump);
-
-            // d = dumperFactory.getNewTopLevelDumper(c.getClassType(), summaryDumper,
-            // collectingDumper.getTypeUsageInformation(), illegalIdentifierDump);
-
-            String methname = (String) options.getOption(OptionsImpl.METHODNAME);
-            if (methname == null) {
-                c.dump(d);
-            }
-            else {
-                try {
-                    for (Method method : c.getMethodByName(methname)) {
-                        method.dump(d, true);
+            @Override
+            public <T> Sink<T> getSink(final SinkType sinkType, final SinkClass sinkClass) {
+                return new Sink<T>() {
+                    @Override
+                    public void write(T sinkable) {
+                        // skip message like: Analysing type demo.MathGame
+                        if (sinkType == SinkType.PROGRESS) {
+                            return;
+                        }
+                        if (sinkType == SinkType.LINENUMBER) {
+                            LineNumberMapping mapping = (LineNumberMapping) sinkable;
+                            NavigableMap<Integer, Integer> classFileMappings = mapping.getClassFileMappings();
+                            NavigableMap<Integer, Integer> mappings = mapping.getMappings();
+                            if (classFileMappings != null && mappings != null) {
+                                for (Entry<Integer, Integer> entry : mappings.entrySet()) {
+                                    Integer srcLineNumber = classFileMappings.get(entry.getKey());
+                                    lineMapping.put(entry.getValue(), srcLineNumber);
+                                }
+                            }
+                            return;
+                        }
+                        sb.append(sinkable);
                     }
-                } catch (NoSuchMethodException e) {
-                    throw new IllegalArgumentException("No such method '" + methname + "'.");
-                }
+                };
             }
-            d.print("");
-            result.append(d.toString());
-        } catch (ConfusedCFRException e) {
-            result.append(e.toString()).append("\n");
-            for (Object x : e.getStackTrace()) {
-                result.append(x).append("\n");
-            }
-        } catch (CannotLoadClassException e) {
-            result.append("Can't load the class specified:").append("\n");
-            result.append(e.toString()).append("\n");
-        } catch (RuntimeException e) {
-            result.append(e.toString()).append("\n");
-            for (Object x : e.getStackTrace()) {
-                result.append(x).append("\n");
-            }
-        } finally {
-            if (d != null) {
-                d.close();
-            }
+        };
+
+        HashMap<String, String> options = new HashMap<String, String>();
+        /**
+         * @see org.benf.cfr.reader.util.MiscConstants.Version.getVersion() Currently,
+         *      the cfr version is wrong. so disable show cfr version.
+         */
+        options.put("showversion", "false");
+        options.put("hideutf", String.valueOf(hideUnicode));
+        options.put("trackbytecodeloc", "true");
+        if (!StringUtils.isBlank(methodName)) {
+            options.put("methodname", methodName);
         }
-        return result.toString();
+
+        CfrDriver driver = new CfrDriver.Builder().withOptions(options).withOutputSink(mySink).build();
+        List<String> toAnalyse = new ArrayList<String>();
+        toAnalyse.add(classFilePath);
+        driver.analyse(toAnalyse);
+
+        String resultCode = sb.toString();
+        if (printLineNumber && !lineMapping.isEmpty()) {
+            resultCode = addLineNumber(resultCode, lineMapping);
+        }
+
+        return Pair.make(resultCode, lineMapping);
     }
 
-    public static class StringDumper extends StreamDumper {
-        private StringWriter sw = new StringWriter();
+    public static String decompile(String classFilePath, String methodName, boolean hideUnicode,
+            boolean printLineNumber) {
+        return decompileWithMappings(classFilePath, methodName, hideUnicode, printLineNumber).getFirst();
+    }
 
-        public StringDumper(TypeUsageInformation typeUsageInformation, Options options,
-                        IllegalIdentifierDump illegalIdentifierDump) {
-            super(typeUsageInformation, options, illegalIdentifierDump);
-        }
-
-        public void addSummaryError(Method paramMethod, String paramString) {
-
-        }
-
-        public void close() {
-            try {
-                sw.close();
-            } catch (IOException e) {
-                throw new RuntimeException(e);
+    private static String addLineNumber(String src, Map<Integer, Integer> lineMapping) {
+        int maxLineNumber = 0;
+        for (Integer value : lineMapping.values()) {
+            if (value != null && value > maxLineNumber) {
+                maxLineNumber = value;
             }
         }
 
-        @Override
-        protected void write(String source) {
-            sw.write(source);
+        String formatStr = "/*%2d*/ ";
+        String emptyStr = "       ";
+
+        StringBuilder sb = new StringBuilder();
+
+        List<String> lines = StringUtils.toLines(src);
+
+        if (maxLineNumber >= 1000) {
+            formatStr = "/*%4d*/ ";
+            emptyStr = "         ";
+        } else if (maxLineNumber >= 100) {
+            formatStr = "/*%3d*/ ";
+            emptyStr = "        ";
         }
 
-        public String toString() {
-            return sw.toString();
+        int index = 0;
+        for (String line : lines) {
+            Integer srcLineNumber = lineMapping.get(index + 1);
+            if (srcLineNumber != null) {
+                sb.append(String.format(formatStr, srcLineNumber));
+            } else {
+                sb.append(emptyStr);
+            }
+            sb.append(line).append("\n");
+            index++;
         }
+
+        return sb.toString();
     }
+
 }

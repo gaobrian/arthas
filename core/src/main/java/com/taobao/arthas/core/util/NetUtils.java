@@ -2,9 +2,11 @@ package com.taobao.arthas.core.util;
 
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
+import com.taobao.arthas.common.IOUtils;
 
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.HttpURLConnection;
@@ -20,6 +22,8 @@ public class NetUtils {
     private static final int QOS_PORT = 12201;
     private static final String QOS_RESPONSE_START_LINE = "pandora>[QOS Response]";
     private static final int INTERNAL_SERVER_ERROR = 500;
+    private static final int CONNECT_TIMEOUT = 1000;
+    private static final int READ_TIMEOUT = 3000;
 
     /**
      * This implementation is based on Apache HttpClient.
@@ -28,12 +32,16 @@ public class NetUtils {
      */
     public static Response request(String urlString) {
         HttpURLConnection urlConnection = null;
+        InputStream in = null;
         try {
             URL url = new URL(urlString);
             urlConnection = (HttpURLConnection)url.openConnection();
+            urlConnection.setConnectTimeout(CONNECT_TIMEOUT);
+            urlConnection.setReadTimeout(READ_TIMEOUT);;
             // prefer json to text
             urlConnection.setRequestProperty("Accept", "application/json,text/plain;q=0.2");
-            BufferedReader br = new BufferedReader(new InputStreamReader(urlConnection.getInputStream()));
+            in = urlConnection.getInputStream();
+            BufferedReader br = new BufferedReader(new InputStreamReader(in));
             String line = null;
             StringBuilder sb = new StringBuilder();
             while ((line = br.readLine()) != null) {
@@ -52,6 +60,7 @@ public class NetUtils {
         } catch (IOException e) {
             return new Response(e.getMessage(), false);
         } finally {
+            IOUtils.close(in);
             if (urlConnection != null) {
                 urlConnection.disconnect();
             }
@@ -74,7 +83,7 @@ public class NetUtils {
             int responseCode = con.getResponseCode();
 
             br = new BufferedReader(new InputStreamReader(con.getInputStream()));
-            StringBuffer sb = new StringBuffer();
+            StringBuilder sb = new StringBuilder();
             String line = null;
             while ((line = br.readLine()) != null) {
                 sb.append(line);
@@ -129,7 +138,7 @@ public class NetUtils {
             pw.flush();
 
             br = new BufferedReader(new InputStreamReader(s.getInputStream()));
-            StringBuffer sb = new StringBuffer();
+            StringBuilder sb = new StringBuilder();
             String line = null;
             boolean start = false;
             while ((line = br.readLine()) != null) {
